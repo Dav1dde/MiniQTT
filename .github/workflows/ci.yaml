@@ -1,0 +1,55 @@
+on: [workflow_dispatch, push, pull_request]
+
+name: CI
+
+
+env:
+  toolchain: stable
+
+
+jobs:
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install ${{ env.toolchain }} --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --examples --all-features
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install ${{ env.toolchain }} --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@v2
+      - name: "doc --lib --all-features"
+        run: cargo doc --lib --no-deps --all-features --document-private-items
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install ${{ env.toolchain }} --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --all-features
+
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install ${{ env.toolchain }} --profile minimal --component rustfmt --no-self-update
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install ${{ env.toolchain }} --profile minimal --component clippy --no-self-update
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -- -D warnings

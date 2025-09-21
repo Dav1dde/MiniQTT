@@ -1,0 +1,18 @@
+[package]
+name = "miniqtt"
+version = "0.1.0"
+edition = "2024"
+authors = ["David Herberth <github@dav1d.de>"]
+description = "A MQTTv5 only client for embedded"
+license = "MIT"
+categories = ["asynchronous", "embedded", "no-std", "network-programming"]
+repository = "https://github.com/Dav1dde/miniqtt"
+rust-version = "1.89"
+
+[dependencies]
+embedded-io-async = "0.6.1"
+
+
+[dev-dependencies]
+tokio = { version = "1.47", features = ["full"] }
+embedded-io-adapters = { version = "0.6.2", features = ["tokio-1"] }
