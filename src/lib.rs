@@ -1,4 +1,5 @@
 pub mod client;
+mod log;
 pub mod protocol;
 mod utils;
 

@@ -27,10 +27,10 @@ impl FixedHeader {
     }
 }
 
-impl Parse for FixedHeader {
+impl<'a> Parse<'a> for FixedHeader {
     type Error = PacketError;
 
-    fn parse(data: &[u8]) -> Result<(usize, Self), ParseError<Self::Error>> {
+    fn parse(data: &'a [u8]) -> Result<(usize, Self), ParseError<Self::Error>> {
         let mut cursor = Cursor::new(data);
 
         let start = cursor.read_u8()?;
@@ -39,6 +39,40 @@ impl Parse for FixedHeader {
             .map_err(|err| err.map(|_| PacketError::ProtocolError))?;
 
         Ok((cursor.position(), Self { start, length }))
+    }
+}
+
+/// A UTF-8 encoded string as used in the MQTT protocol.
+pub struct EncodedStr<'a>(pub &'a str);
+
+impl EncodedStr<'_> {
+    pub fn size(&self) -> usize {
+        2 + self.0.len()
+    }
+
+    pub async fn write_to<T>(&self, mut sink: T) -> Result<(), T::Error>
+    where
+        T: embedded_io_async::Write,
+    {
+        // TODO: maybe should check length here? -> Protocol Error
+        let len = self.0.len() as u16;
+        sink.write_all(&len.to_be_bytes()).await?;
+        sink.write_all(self.0.as_bytes()).await?;
+        Ok(())
+    }
+}
+
+impl<'a> Parse<'a> for EncodedStr<'a> {
+    type Error = PacketError;
+
+    fn parse(data: &'a [u8]) -> Result<(usize, Self), ParseError<Self::Error>> {
+        let mut cursor = Cursor::new(data);
+
+        let length = cursor.read_u16_be()?;
+        let s = cursor.read_slice(length as usize)?;
+        let s = core::str::from_utf8(s).map_err(|_| PacketError::ProtocolError)?;
+
+        Ok((cursor.position(), Self(s)))
     }
 }
 
@@ -277,10 +311,10 @@ impl From<VariableByteInteger> for u32 {
     }
 }
 
-impl Parse for VariableByteInteger {
+impl<'a> Parse<'a> for VariableByteInteger {
     type Error = VariableByteIntegerInvalid;
 
-    fn parse(data: &[u8]) -> Result<(usize, Self), ParseError<Self::Error>> {
+    fn parse(data: &'a [u8]) -> Result<(usize, Self), ParseError<Self::Error>> {
         Self::parse(data)
     }
 }

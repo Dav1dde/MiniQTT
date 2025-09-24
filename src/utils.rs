@@ -16,7 +16,13 @@ impl<'a> Cursor<'a> {
         Ok(result)
     }
 
-    pub fn read<T: Parse>(&mut self) -> Result<T, ParseError<T::Error>> {
+    pub fn read_u16_be<T>(&mut self) -> Result<u16, ParseError<T>> {
+        let msb = self.read_u8()?;
+        let lsb = self.read_u8()?;
+        Ok(u16::from_be_bytes([msb, lsb]))
+    }
+
+    pub fn read<T: Parse<'a>>(&mut self) -> Result<T, ParseError<T::Error>> {
         let (len, packet) = T::parse(self.rem())?;
         self.position += len;
         Ok(packet)

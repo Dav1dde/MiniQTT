@@ -12,11 +12,11 @@ pub trait PacketWrite: Packet {
         T: embedded_io_async::Write;
 }
 
-pub trait Parse: Sized {
+pub trait Parse<'a>: Sized {
     type Error;
 
     // TODO: Send + Sync fun etc.
-    fn parse(data: &[u8]) -> Result<(usize, Self), ParseError<Self::Error>>;
+    fn parse(data: &'a [u8]) -> Result<(usize, Self), ParseError<Self::Error>>;
 }
 
 #[derive(Debug, PartialEq, Eq)] // TODO: impl error
