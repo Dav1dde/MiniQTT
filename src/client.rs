@@ -1,10 +1,7 @@
 use core::sync::atomic::{AtomicU16, Ordering};
 
-use crate::{
-    log,
-    protocol::{PacketError, PacketWrite, Parse, ParseError, v5},
-    utils::Cursor,
-};
+use crate::log;
+use crate::protocol::{PacketError, PacketWrite, Parse, ParseError, v5};
 
 pub struct Client<'a, C> {
     // TODO: connection should possibly a trait to make dealing with it easier, or make the Client
@@ -173,10 +170,9 @@ where
             //
             // The transmute _should_ be safe, as we still tie the packet to 'self, combined with
             // the usage of the buffers described before..
-            let mut cursor = Cursor::new(unsafe { core::mem::transmute::<&[u8], &[u8]>(&*data) });
-            match cursor.read::<T>() {
-                Ok(packet) => {
-                    self.position = Some(cursor.position());
+            match T::parse(unsafe { core::mem::transmute::<&[u8], &[u8]>(&*data) }) {
+                Ok((position, packet)) => {
+                    self.position = Some(position);
                     log::debug!("<- {packet:?}");
                     return Ok(packet);
                 }
