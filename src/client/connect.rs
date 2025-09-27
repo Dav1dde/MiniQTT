@@ -5,6 +5,7 @@ use std::{
 
 #[cfg(doc)]
 use crate::client::Client;
+use crate::client::Result;
 use crate::protocol::v5;
 
 pin_project_lite::pin_project! {

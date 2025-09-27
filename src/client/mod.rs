@@ -6,9 +6,10 @@ use crate::protocol::{Packet, PacketError, Parse, ParseError, v5};
 use crate::traits::Writable;
 
 mod connect;
+mod error;
 
-#[doc(inline)]
 pub use self::connect::Connect;
+pub use self::error::{Error, Result};
 
 pub struct Client<'a, C> {
     // TODO: connection should possibly a trait to make dealing with it easier, or make the Client
@@ -125,21 +126,20 @@ impl<C> Connection<'_, C>
 where
     C: embedded_io_async::Write,
 {
-    async fn send<T>(&mut self, packet: &T) -> Result<(), T::Error<C::Error>>
+    async fn send<T>(&mut self, packet: &T) -> Result<(), C::Error>
     where
         T: Packet,
         T: Writable,
         T: core::fmt::Debug,
+        T::Error<C::Error>: Into<C::Error>,
     {
         log::debug!("-> {packet:?}");
 
-        // TODO: proper PacketError
         FixedHeader::new(T::TYPE, packet.flags(), packet.size())
             .write_to(&mut self.inner)
-            .await
-            .unwrap();
+            .await?;
 
-        packet.write_to(&mut self.inner).await?;
+        packet.write_to(&mut self.inner).await.map_err(Into::into)?;
 
         Ok(())
     }
@@ -195,20 +195,40 @@ where
                     return Ok(packet);
                 }
                 Err(ParseError::NotEnoughData) => {}
-                Err(ParseError::Error(err)) => panic!("failed to parse packet {err:?}"),
+                Err(ParseError::Error(_err)) => {
+                    // TODO: once we end up here, we will never make progress
+                    //  1) Maybe just close the connection/disconnect, check the spec!
+                    //  2) Try to recover:
+                    //     - Throw away all data and start from scratch.
+                    //     - Throw away exactly one packet, we should know based on the fixed
+                    //     header.
+                    // Not trying to recover and just disconnecting is probably the better idea.
+                    // Also need to consider QoS levels without disconnect.
+                    log::debug!("protocol error: {_err:?}");
+                    return Err(Error::Protocol);
+                }
             }
 
             if remaining.is_empty() {
-                panic!("Buffer to small");
+                // TODO: maybe can recover here by just skipping the current packet,
+                // assuming the buffer is big enough to parse the fixed header.
+                //
+                // This allows recovery from oversized `PUBLISH` packets while still
+                // handling other packets gracefully.
+                // Need to consider QoS levels here possibly.
+                //
+                // In any case, we should return an error here at least once to inform the user,
+                // something was dropped.
+                return Err(Error::InsufficientBufferSize);
             }
 
             let r = self.inner.read(remaining).await?;
             if r == 0 {
-                if data.is_empty() {
-                    panic!("Clean Exit");
-                } else {
-                    panic!("Connection Reset by Peer");
-                }
+                match data.is_empty() {
+                    true => log::debug!("Clean Exit"),
+                    false => log::debug!("Connection Reset by Peer"),
+                };
+                return Err(Error::Disconnected);
             } else {
                 self.size += r;
                 log::trace!("{:?} +{r}", &self.rx_buffer[..self.size]);
