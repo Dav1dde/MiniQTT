@@ -1,16 +1,41 @@
 use crate::{
     protocol::{PacketError, Parse, ParseError},
+    traits::Writable,
     utils::Cursor,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum QoS {
+    AtMostOnce = 0,
+    AtLeastOnce = 1,
+    ExactlyOnce = 2,
+}
+
+impl From<QoS> for u8 {
+    fn from(value: QoS) -> Self {
+        value as u8
+    }
+}
 
 /// The fixed header is a basic building block of the MQTT protocol, it is the beginning of each
 /// packet, containing its type, flags and a variable length.
 pub struct FixedHeader {
     start: u8,
+    // TODO maybe this should be a usize and errors in the Writable
     length: VariableByteInteger,
 }
 
 impl FixedHeader {
+    pub fn new(packet: u8, flags: u8, size: usize) -> Self {
+        // TODO: flags only lower bits are set -> err
+        // TODO: error when size too large
+        Self {
+            start: (packet << 4) | (flags & 0b1111),
+            length: size.try_into().unwrap(),
+        }
+    }
+
     /// They type of the packet.
     pub fn ty(&self) -> u8 {
         self.start >> 4
@@ -42,23 +67,40 @@ impl<'a> Parse<'a> for FixedHeader {
     }
 }
 
+impl Writable for FixedHeader {
+    type Error<E> = E;
+
+    fn size(&self) -> usize {
+        1 + self.length.size()
+    }
+
+    async fn write_to<S>(&self, mut sink: S) -> Result<(), Self::Error<S::Error>>
+    where
+        S: embedded_io_async::Write,
+    {
+        self.start.write_to(&mut sink).await?;
+        self.length.write_to(&mut sink).await?;
+        Ok(())
+    }
+}
+
 /// A UTF-8 encoded string as used in the MQTT protocol.
+///
+/// Spec: [1.5.4](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901010)
 pub struct EncodedStr<'a>(pub &'a str);
 
-impl EncodedStr<'_> {
-    pub fn size(&self) -> usize {
+impl Writable for EncodedStr<'_> {
+    type Error<E> = E;
+
+    fn size(&self) -> usize {
         2 + self.0.len()
     }
 
-    pub async fn write_to<T>(&self, mut sink: T) -> Result<(), T::Error>
+    async fn write_to<S>(&self, sink: S) -> Result<(), Self::Error<S::Error>>
     where
-        T: embedded_io_async::Write,
+        S: embedded_io_async::Write,
     {
-        // TODO: maybe should check length here? -> Protocol Error
-        let len = self.0.len() as u16;
-        sink.write_all(&len.to_be_bytes()).await?;
-        sink.write_all(self.0.as_bytes()).await?;
-        Ok(())
+        BinaryData(self.0.as_bytes()).write_to(sink).await
     }
 }
 
@@ -68,9 +110,45 @@ impl<'a> Parse<'a> for EncodedStr<'a> {
     fn parse(data: &'a [u8]) -> Result<(usize, Self), ParseError<Self::Error>> {
         let mut cursor = Cursor::new(data);
 
+        let BinaryData(payload) = cursor.read()?;
+        let s = core::str::from_utf8(payload).map_err(|_| PacketError::ProtocolError)?;
+
+        Ok((cursor.position(), Self(s)))
+    }
+}
+
+/// Raw binary data as used in the MQTT protocol.
+///
+/// Spec: [1.5.6](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901012)
+pub struct BinaryData<'a>(pub &'a [u8]);
+
+impl Writable for BinaryData<'_> {
+    type Error<E> = E;
+
+    fn size(&self) -> usize {
+        2 + self.0.len()
+    }
+
+    async fn write_to<S>(&self, mut sink: S) -> Result<(), Self::Error<S::Error>>
+    where
+        S: embedded_io_async::Write,
+    {
+        // TODO: maybe should check length here? -> Protocol Error
+        let len = self.0.len() as u16;
+        sink.write_all(&len.to_be_bytes()).await?;
+        sink.write_all(self.0).await?;
+        Ok(())
+    }
+}
+
+impl<'a> Parse<'a> for BinaryData<'a> {
+    type Error = PacketError;
+
+    fn parse(data: &'a [u8]) -> Result<(usize, Self), ParseError<Self::Error>> {
+        let mut cursor = Cursor::new(data);
+
         let length = cursor.read_u16_be()?;
         let s = cursor.read_slice(length as usize)?;
-        let s = core::str::from_utf8(s).map_err(|_| PacketError::ProtocolError)?;
 
         Ok((cursor.position(), Self(s)))
     }
@@ -275,6 +353,21 @@ impl VariableByteInteger {
     }
 }
 
+impl Writable for VariableByteInteger {
+    type Error<E> = E;
+
+    fn size(&self) -> usize {
+        self.size()
+    }
+
+    async fn write_to<T>(&self, mut sink: T) -> Result<(), T::Error>
+    where
+        T: embedded_io_async::Write,
+    {
+        sink.write_all(self.as_slice()).await
+    }
+}
+
 #[derive(Debug)] // TODO: implement `Error`
 pub struct VariableByteIntegerOverflow {
     _private: (),
@@ -301,6 +394,16 @@ impl TryFrom<u32> for VariableByteInteger {
     type Error = VariableByteIntegerOverflow;
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Self::encode(value)
+    }
+}
+
+impl TryFrom<usize> for VariableByteInteger {
+    type Error = VariableByteIntegerOverflow;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        let value =
+            u32::try_from(value).map_err(|_| VariableByteIntegerOverflow { _private: () })?;
         Self::encode(value)
     }
 }

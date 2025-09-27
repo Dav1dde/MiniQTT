@@ -1,79 +1,19 @@
+use core::fmt;
+
 use crate::{
     protocol::{
-        Packet, PacketError, PacketWrite, Parse, ParseError,
+        Packet, PacketError, Parse, ParseError,
         types::{EncodedStr, FixedHeader, VariableByteInteger},
     },
+    traits::Writable,
     utils::Cursor,
 };
 
-#[derive(Debug)]
-pub struct Connect {}
+pub mod connect;
+pub mod property;
 
-impl Packet for Connect {
-    const TYPE: u8 = 0b0001;
-}
-
-impl PacketWrite for Connect {
-    async fn write<T>(&self, mut sink: T) -> Result<(), T::Error>
-    where
-        T: embedded_io_async::Write,
-    {
-        // Fixed Header:
-        sink.write_all(&[Self::TYPE << 4]).await?;
-        sink.write_all(VariableByteInteger::from(20u8).as_slice())
-            .await?;
-
-        // Protocol Name:
-        sink.write_all(&[0, 4, b'M', b'Q', b'T', b'T']).await?;
-
-        // Protocol Version:
-        sink.write_all(&[5]).await?;
-
-        // Connect Flags:
-        sink.write_all(&[0]).await?;
-
-        // Keep Alive:
-        sink.write_all(&[0, 0]).await?;
-
-        // Properties:
-        sink.write_all(VariableByteInteger::from(0u8).as_slice())
-            .await?;
-
-        // Payload:
-        sink.write_all(&7u16.to_be_bytes()).await?;
-        sink.write_all(b"miniqtt").await?;
-
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct ConnAck {}
-
-impl Packet for ConnAck {
-    const TYPE: u8 = 0b0010;
-}
-
-impl<'a> Parse<'a> for ConnAck {
-    type Error = PacketError;
-
-    fn parse(data: &[u8]) -> Result<(usize, Self), ParseError<PacketError>> {
-        let mut cursor = Cursor::new(data);
-
-        let fixed_header = cursor.read::<FixedHeader>()?;
-        if fixed_header.ty() != Self::TYPE {
-            return Err(PacketError::InvalidType {
-                expected: Self::TYPE,
-                actual: fixed_header.ty(),
-            }
-            .into());
-        }
-
-        let _ = cursor.read_slice(fixed_header.length().as_u32() as usize)?;
-
-        Ok((cursor.position(), Self {}))
-    }
-}
+pub use self::connect::{ConnAck, Connect};
+pub use self::property::Property;
 
 #[derive(Debug)]
 pub struct Disconnect {}
@@ -82,16 +22,17 @@ impl Packet for Disconnect {
     const TYPE: u8 = 0b1110;
 }
 
-impl PacketWrite for Disconnect {
-    async fn write<T>(&self, mut sink: T) -> Result<(), T::Error>
+impl Writable for Disconnect {
+    type Error<E> = E;
+
+    fn size(&self) -> usize {
+        1
+    }
+
+    async fn write_to<T>(&self, mut sink: T) -> Result<(), T::Error>
     where
         T: embedded_io_async::Write,
     {
-        // Fixed Header:
-        sink.write_all(&[Self::TYPE << 4]).await?;
-        sink.write_all(VariableByteInteger::from(1u8).as_slice())
-            .await?;
-
         // Reason Code:
         sink.write_all(&[0x04]).await?;
 
@@ -102,41 +43,47 @@ impl PacketWrite for Disconnect {
 #[derive(Debug)]
 pub struct Subscribe<'a> {
     pub identifier: u16,
+    // TODO: probably should make the inner tuple a type
     pub topics: &'a [(&'a str, u8, bool)],
 }
 
 impl Packet for Subscribe<'_> {
     const TYPE: u8 = 0b1000;
+
+    fn flags(&self) -> u8 {
+        0b0010
+    }
 }
 
-impl PacketWrite for Subscribe<'_> {
-    async fn write<T>(&self, mut sink: T) -> Result<(), T::Error>
+impl Writable for Subscribe<'_> {
+    type Error<E> = E;
+
+    fn size(&self) -> usize {
+        self.identifier.size()
+            + 1
+            + self
+                .topics
+                .iter()
+                .map(|(topic, _, _)| EncodedStr(topic).size() + 1)
+                .sum::<usize>()
+    }
+
+    async fn write_to<T>(&self, mut sink: T) -> Result<(), T::Error>
     where
         T: embedded_io_async::Write,
     {
-        // Fixed Header:
-        sink.write_all(&[Self::TYPE << 4 | 0b0010]).await?;
-
-        let mut length = 2 + 1;
-        for (topic, _, _) in self.topics {
-            length += 2 + topic.len() as u16 + 1;
-        }
-
-        sink.write_all(VariableByteInteger::from(length).as_slice())
-            .await?;
-
         // Identifier:
-        sink.write_all(&self.identifier.to_be_bytes()).await?;
+        self.identifier.write_to(&mut sink).await?;
 
         // Properties:
-        sink.write_all(&[0]).await?;
+        VariableByteInteger::from(0u8).write_to(&mut sink).await?;
 
         // Payload:
         for (topic, qos, no_local) in self.topics {
             EncodedStr(topic).write_to(&mut sink).await?;
             // TODO: there are more options, like retain etc.
             let options = (qos & 0b11) | u8::from(*no_local) << 2;
-            sink.write_all(&[options]).await?;
+            options.write_to(&mut sink).await?;
         }
 
         Ok(())
@@ -171,14 +118,34 @@ impl<'a> Parse<'a> for SubAck {
     }
 }
 
-#[derive(Debug)]
 pub struct Publish<'a> {
     pub dup: bool,
     pub qos: u8,
     pub retain: bool,
     pub identifier: Option<u16>,
     pub topic: &'a str,
-    pub body: &'a [u8],
+    pub payload: &'a [u8],
+}
+
+impl fmt::Debug for Publish<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Publish {{ ")?;
+        write!(f, "Q{} ", self.qos)?;
+        write!(f, "D{} ", self.dup as u8)?;
+        write!(f, "R{} ", self.retain as u8)?;
+        match self.identifier {
+            Some(id) => write!(f, "Id:{id} ")?,
+            None => write!(f, "Id:- ")?,
+        };
+        write!(f, "| {:?}: ", self.topic)?;
+        match str::from_utf8(self.payload) {
+            Ok(payload) => write!(f, "{payload:?} ")?,
+            Err(_) => write!(f, "{:?} ", self.payload)?,
+        }
+        write!(f, "}}")?;
+
+        Ok(())
+    }
 }
 
 impl Packet for Publish<'_> {
@@ -232,7 +199,7 @@ impl<'a> Parse<'a> for Publish<'a> {
                 identifier,
                 retain,
                 topic,
-                body,
+                payload: body,
             },
         ))
     }

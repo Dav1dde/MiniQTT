@@ -3,21 +3,35 @@ pub mod v5;
 
 pub trait Packet {
     const TYPE: u8;
-}
 
-pub trait PacketWrite: Packet {
-    // TODO: Send + Sync fun etc.
-    fn write<T>(&self, write: T) -> impl Future<Output = Result<(), T::Error>>
-    where
-        T: embedded_io_async::Write;
+    fn flags(&self) -> u8 {
+        0
+    }
 }
 
 pub trait Parse<'a>: Sized {
     type Error;
 
     // TODO: Send + Sync fun etc.
-    fn parse(data: &'a [u8]) -> Result<(usize, Self), ParseError<Self::Error>>;
+    fn parse(data: &'a [u8]) -> ParseResult<(usize, Self), Self::Error>;
 }
+
+pub trait PacketParse<'a>: Sized {
+    fn parse(data: &'a [u8]) -> ParseResult<(usize, Self), PacketError>;
+}
+
+impl<'a, T> Parse<'a> for T
+where
+    T: PacketParse<'a>,
+{
+    type Error = PacketError;
+
+    fn parse(data: &'a [u8]) -> ParseResult<(usize, Self), Self::Error> {
+        <T as PacketParse>::parse(data)
+    }
+}
+
+pub type ParseResult<T, E> = Result<T, ParseError<E>>;
 
 #[derive(Debug, PartialEq, Eq)] // TODO: impl error
 pub enum ParseError<T> {

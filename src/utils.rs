@@ -42,3 +42,15 @@ impl<'a> Cursor<'a> {
         &self.buf[self.position..]
     }
 }
+
+macro_rules! write_many {
+    ($sink:ident, $($v:expr),*) => {{
+        $(
+            match ($v).write_to(&mut $sink).await {
+                Ok(()) => (),
+                Err(err) => return Err(err),
+            }
+        )*
+    }};
+}
+pub(super) use write_many;

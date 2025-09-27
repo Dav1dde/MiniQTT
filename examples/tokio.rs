@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut client = miniqtt::Client::new(connection);
 
     client.connect().await?;
-    client.subscribe("foo/bar").await?;
+    client.subscribe("$SYS/#").await?;
 
     loop {
         client.receive().await?;

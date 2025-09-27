@@ -1,7 +1,9 @@
 use core::sync::atomic::{AtomicU16, Ordering};
 
 use crate::log;
-use crate::protocol::{PacketError, PacketWrite, Parse, ParseError, v5};
+use crate::protocol::types::FixedHeader;
+use crate::protocol::{Packet, PacketError, Parse, ParseError, v5};
+use crate::traits::Writable;
 
 pub struct Client<'a, C> {
     // TODO: connection should possibly a trait to make dealing with it easier, or make the Client
@@ -37,7 +39,26 @@ where
     /// This method is *not* cancel safe.
     pub async fn connect(&mut self) -> Result<(), C::Error> {
         // TODO: a lot more connection parameters, properties, wills, etc. are missing.
-        self.connection.send(&v5::Connect {}).await?;
+        self.connection
+            .send(&v5::Connect {
+                client_id: "miniqtt",
+                keep_alive: 0,
+                clean_start: true,
+                will: Some(v5::connect::Will {
+                    retain: false,
+                    qos: crate::protocol::types::QoS::AtLeastOnce,
+                    properties: &[
+                        v5::connect::WillProperty::ContentType("application/foo-bar"),
+                        v5::connect::WillProperty::WillDelay(10),
+                    ],
+                    topic: "test/bar",
+                    payload: b"oof",
+                }),
+                username: Some("foo"),
+                password: Some("bar"),
+                properties: &[v5::connect::ConnectProperty::MaximumPacketSize(100)],
+            })
+            .await?;
 
         // TODO: read and use connection parameters, like package size, qos etc.
         let _ack = self.connection.receive::<v5::ConnAck>().await?;
@@ -115,13 +136,21 @@ impl<C> Connection<'_, C>
 where
     C: embedded_io_async::Write,
 {
-    async fn send<T>(&mut self, packet: &T) -> Result<(), C::Error>
+    async fn send<T>(&mut self, packet: &T) -> Result<(), T::Error<C::Error>>
     where
-        T: PacketWrite,
+        T: Packet,
+        T: Writable,
         T: core::fmt::Debug,
     {
         log::debug!("-> {packet:?}");
-        packet.write(&mut self.inner).await?;
+
+        // TODO: proper PacketError
+        FixedHeader::new(T::TYPE, packet.flags(), packet.size())
+            .write_to(&mut self.inner)
+            .await
+            .unwrap();
+
+        packet.write_to(&mut self.inner).await?;
 
         Ok(())
     }
