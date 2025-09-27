@@ -47,7 +47,7 @@ impl Writable for Connect<'_> {
         // Connect Flags:
         let connect_flags = {
             let username = u8::from(self.username.is_some());
-            let password = u8::from(self.username.is_some());
+            let password = u8::from(self.password.is_some());
             let will_retain = u8::from(self.will.is_some_and(|w| w.retain));
             let will_qos = u8::from(self.will.map(|w| w.qos).unwrap_or(QoS::AtMostOnce));
             let will = u8::from(self.will.is_some());

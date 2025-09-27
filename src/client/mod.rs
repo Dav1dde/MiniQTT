@@ -5,6 +5,11 @@ use crate::protocol::types::FixedHeader;
 use crate::protocol::{Packet, PacketError, Parse, ParseError, v5};
 use crate::traits::Writable;
 
+mod connect;
+
+#[doc(inline)]
+pub use self::connect::Connect;
+
 pub struct Client<'a, C> {
     // TODO: connection should possibly a trait to make dealing with it easier, or make the Client
     // a trait.
@@ -21,7 +26,7 @@ impl<'a, C> Client<'a, C> {
     }
 }
 
-impl<C> Client<'_, C>
+impl<'c, C> Client<'c, C>
 where
     C: embedded_io_async::Read,
     C: embedded_io_async::Write,
@@ -36,34 +41,18 @@ where
     ///
     /// # Cancel safety
     ///
-    /// This method is *not* cancel safe.
-    pub async fn connect(&mut self) -> Result<(), C::Error> {
-        // TODO: a lot more connection parameters, properties, wills, etc. are missing.
-        self.connection
-            .send(&v5::Connect {
-                client_id: "miniqtt",
-                keep_alive: 0,
-                clean_start: true,
-                will: Some(v5::connect::Will {
-                    retain: false,
-                    qos: crate::protocol::types::QoS::AtLeastOnce,
-                    properties: &[
-                        v5::connect::WillProperty::ContentType("application/foo-bar"),
-                        v5::connect::WillProperty::WillDelay(10),
-                    ],
-                    topic: "test/bar",
-                    payload: b"oof",
-                }),
-                username: Some("foo"),
-                password: Some("bar"),
-                properties: &[v5::connect::ConnectProperty::MaximumPacketSize(100)],
-            })
-            .await?;
+    /// The returned future is *not* cancel safe.
+    pub fn connect<'a>(
+        &mut self,
+        client_id: &'a str,
+    ) -> Connect<'a, impl connect::MakeFuture<'a, Output = Result<(), C::Error>>> {
+        Connect::new(client_id, |packet| async move {
+            self.connection.send(&packet).await?;
 
-        // TODO: read and use connection parameters, like package size, qos etc.
-        let _ack = self.connection.receive::<v5::ConnAck>().await?;
+            let _ack = self.connection.receive::<v5::ConnAck>().await?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub async fn subscribe(&mut self, topic: &str) -> Result<(), C::Error> {

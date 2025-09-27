@@ -253,6 +253,7 @@ dependencies = [
  "embedded-io-async",
  "env_logger",
  "log",
+ "pin-project-lite",
  "tokio",
 ]
 
