@@ -45,7 +45,7 @@ where
     pub fn connect<'a>(
         &mut self,
         client_id: &'a str,
-    ) -> Connect<'a, impl connect::MakeFuture<'a, Output = Result<(), C::Error>>> {
+    ) -> Connect<'a, impl connect::MakeFuture<'a, Error = C::Error>> {
         Connect::new(client_id, |packet| async move {
             self.connection.send(&packet).await?;
 

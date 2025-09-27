@@ -49,13 +49,13 @@ impl<'a, T> Connect<'a, T> {
 }
 
 impl Connect<'_, ()> {
-    pub(super) fn new<'a, M, F, T>(
+    pub(super) fn new<'a, M, F, E>(
         client_id: &'a str,
         m: M,
-    ) -> Connect<'a, impl MakeFuture<'a, Output = T>>
+    ) -> Connect<'a, impl MakeFuture<'a, Error = E>>
     where
         M: FnOnce(v5::Connect<'a>) -> F,
-        F: Future<Output = T>,
+        F: Future<Output = Result<(), E>>,
     {
         let packet = v5::Connect {
             client_id,
@@ -78,7 +78,7 @@ impl<'a, M> Future for Connect<'a, M>
 where
     M: MakeFuture<'a>,
 {
-    type Output = M::Output;
+    type Output = Result<(), M::Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
@@ -87,14 +87,13 @@ where
 }
 
 pub trait MakeFuture<'a> {
-    // TODO: possibly this should be `type Error = ` instead.
-    type Output;
+    type Error;
 
     fn poll(
         self: Pin<&mut Self>,
         state: &v5::Connect<'a>,
         cx: &mut Context<'_>,
-    ) -> Poll<Self::Output>;
+    ) -> Poll<Result<(), Self::Error>>;
 }
 
 pin_project_lite::pin_project! {
@@ -105,14 +104,18 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<'a, M, F, T> MakeFuture<'a> for Inner<M, F>
+impl<'a, M, F, E> MakeFuture<'a> for Inner<M, F>
 where
     M: FnOnce(v5::Connect<'a>) -> F,
-    F: Future<Output = T>,
+    F: Future<Output = Result<(), E>>,
 {
-    type Output = T;
+    type Error = E;
 
-    fn poll(mut self: Pin<&mut Self>, state: &v5::Connect<'a>, cx: &mut Context<'_>) -> Poll<T> {
+    fn poll(
+        mut self: Pin<&mut Self>,
+        state: &v5::Connect<'a>,
+        cx: &mut Context<'_>,
+    ) -> Poll<F::Output> {
         loop {
             match self.as_mut().project() {
                 InnerProj::Make { make } => {
