@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicU16, Ordering};
 
 use crate::log;
 use crate::protocol::types::FixedHeader;
-use crate::protocol::{Packet, PacketError, Parse, ParseError, v5};
+use crate::protocol::{Packet, PacketError, Parse, ParseError, QoS, v5};
 use crate::traits::Writable;
 
 mod connect;
@@ -64,6 +64,21 @@ where
         self.connection.send(&packet).await?;
 
         let _ack = self.connection.receive::<v5::SubAck>().await?;
+
+        Ok(())
+    }
+
+    pub async fn send(&mut self, topic: &str, payload: &[u8]) -> Result<(), C::Error> {
+        let packet = v5::Publish {
+            dup: false,
+            qos: QoS::AtMostOnce,
+            retain: false,
+            identifier: None,
+            topic,
+            payload,
+        };
+
+        self.connection.send(&packet).await?;
 
         Ok(())
     }

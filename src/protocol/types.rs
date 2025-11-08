@@ -1,22 +1,6 @@
-use crate::{
-    protocol::{PacketError, Parse, ParseError},
-    traits::Writable,
-    utils::Cursor,
-};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u8)]
-pub enum QoS {
-    AtMostOnce = 0,
-    AtLeastOnce = 1,
-    ExactlyOnce = 2,
-}
-
-impl From<QoS> for u8 {
-    fn from(value: QoS) -> Self {
-        value as u8
-    }
-}
+use crate::protocol::{PacketError, Parse, ParseError};
+use crate::traits::Writable;
+use crate::utils::Cursor;
 
 /// The fixed header is a basic building block of the MQTT protocol, it is the beginning of each
 /// packet, containing its type, flags and a variable length.

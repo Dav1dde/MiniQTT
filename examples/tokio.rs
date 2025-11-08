@@ -19,8 +19,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .keep_alive(10)
         .await?;
 
-    client.subscribe("$SYS/#").await?;
+    client.send("miniqtt", b"hello world").await?;
 
+    client.subscribe("$SYS/#").await?;
     loop {
         client.receive().await?;
     }

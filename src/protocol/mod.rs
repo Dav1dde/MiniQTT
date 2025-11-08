@@ -1,5 +1,9 @@
+mod qos;
+
 pub mod types;
 pub mod v5;
+
+pub use qos::*;
 
 pub trait Packet {
     const TYPE: u8;
@@ -13,6 +17,7 @@ pub trait Parse<'a>: Sized {
     type Error;
 
     // TODO: Send + Sync fun etc.
+    // TODO: Writable expects no header to be written, but this requires to manually parse the header.
     fn parse(data: &'a [u8]) -> ParseResult<(usize, Self), Self::Error>;
 }
 
@@ -60,5 +65,6 @@ impl<T> From<T> for ParseError<T> {
 #[derive(Debug)]
 pub enum PacketError {
     InvalidType { expected: u8, actual: u8 },
+    // TODO: this should be more descriptive
     ProtocolError,
 }

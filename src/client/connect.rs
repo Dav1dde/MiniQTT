@@ -33,12 +33,18 @@ impl<'a, T> Connect<'a, T> {
         self
     }
 
-    pub fn with_username(mut self, username: impl Into<Option<&'a str>>) -> Self {
+    pub fn with_username<S>(mut self, username: S) -> Self
+    where
+        S: Into<Option<&'a str>>,
+    {
         self.packet.username = username.into();
         self
     }
 
-    pub fn with_password(mut self, password: impl Into<Option<&'a str>>) -> Self {
+    pub fn with_password<S>(mut self, password: S) -> Self
+    where
+        S: Into<Option<&'a str>>,
+    {
         self.packet.password = password.into();
         self
     }

@@ -1,7 +1,7 @@
 use crate::{
     protocol::{
-        Packet, PacketError, PacketParse, ParseResult,
-        types::{BinaryData, EncodedStr, FixedHeader, QoS},
+        Packet, PacketError, PacketParse, ParseResult, QoS,
+        types::{BinaryData, EncodedStr, FixedHeader},
         v5::{Property, property::Properties},
     },
     traits::Writable,
