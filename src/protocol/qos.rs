@@ -2,7 +2,7 @@ use core::fmt;
 
 /// Quality of Service levels.
 ///
-/// Spec: [4.3](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901234)
+/// Spec: [4.3](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901234).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum QoS {
@@ -12,20 +12,20 @@ pub enum QoS {
     /// No response is sent by the receiver and no retry is performed by the sender.
     /// The message arrives at the receiver either once or not at all.
     ///
-    /// Spec: [4.3.1](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901235)
+    /// Spec: [4.3.1](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901235).
     AtMostOnce = 0,
     /// QoS 1: At least once delivery.
     ///
     /// This Quality of Service level ensures that the message arrives at the receiver at least once.
     ///
-    /// Spec: [4.3.1](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901236)
+    /// Spec: [4.3.1](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901236).
     AtLeastOnce = 1,
     /// QoS 2: Exactly once delivery.
     ///
     /// This is the highest Quality of Service level, for use when neither loss nor duplication
     /// of messages are acceptable. There is an increased overhead associated with QoS 2.
     ///
-    /// Spec: [4.3.1](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901237)
+    /// Spec: [4.3.1](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901237).
     ExactlyOnce = 2,
 }
 

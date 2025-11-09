@@ -2,6 +2,7 @@ use core::sync::atomic::{AtomicU16, Ordering};
 
 use crate::log;
 use crate::protocol::types::FixedHeader;
+use crate::protocol::v5::TopicFilter;
 use crate::protocol::{Packet, PacketError, Parse, ParseError, QoS, v5};
 use crate::traits::Writable;
 
@@ -59,7 +60,13 @@ where
     pub async fn subscribe(&mut self, topic: &str) -> Result<(), C::Error> {
         let packet = v5::Subscribe {
             identifier: self.next_identifier(),
-            topics: &[(topic, 0, true)],
+            topics: &[TopicFilter {
+                name: topic,
+                qos: QoS::AtMostOnce,
+                no_local: Default::default(),
+                retain_as_published: Default::default(),
+                retain: Default::default(),
+            }],
         };
         self.connection.send(&packet).await?;
 
@@ -68,6 +75,11 @@ where
         Ok(())
     }
 
+    // TODO: Make a builder like for `connect` which supports:
+    //  - QoS
+    //  - Topic Alias (send(..).with_alias(&mut my_alias)), where the alias tracks its internal
+    //  register state (including id). Not sure how you'd free an alias again, maybe there is just
+    //  no API for that and you just re-use different topic ids?
     pub async fn send(&mut self, topic: &str, payload: &[u8]) -> Result<(), C::Error> {
         let packet = v5::Publish {
             dup: false,
