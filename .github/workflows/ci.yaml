@@ -31,6 +31,9 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
+      - run: |
+          sudo apt-get update
+          sudo apt-get install mosquitto
       - uses: actions/checkout@v5
       - run: rustup toolchain install ${{ env.toolchain }} --profile minimal --no-self-update
       - uses: Swatinem/rust-cache@v2
