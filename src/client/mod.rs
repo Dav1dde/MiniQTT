@@ -26,6 +26,18 @@ impl<'a, C> Client<'a, C> {
             identifier: AtomicU16::new(20_000),
         }
     }
+
+    pub fn inner(&self) -> &C {
+        self.connection.inner()
+    }
+
+    pub fn inner_mut(&mut self) -> &mut C {
+        self.connection.inner_mut()
+    }
+
+    pub fn into_inner(self) -> C {
+        self.connection.into_inner()
+    }
 }
 
 impl<'c, C> Client<'c, C>
@@ -146,6 +158,18 @@ impl<'a, C> Connection<'a, C> {
             size: 0,
             position: None,
         }
+    }
+
+    pub fn inner(&self) -> &C {
+        &self.inner
+    }
+
+    pub fn inner_mut(&mut self) -> &mut C {
+        &mut self.inner
+    }
+
+    pub fn into_inner(self) -> C {
+        self.inner
     }
 }
 
