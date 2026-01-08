@@ -7,7 +7,7 @@ pub mod connect;
 pub mod property;
 pub mod publish;
 
-pub use self::connect::{ConnAck, Connect};
+pub use self::connect::{ConnAck, ConnAckReason, Connect, ConnectProperty};
 pub use self::property::Property;
 pub use self::publish::Publish;
 
@@ -155,7 +155,7 @@ impl<'a> Parse<'a> for SubAck {
 
         let fixed_header = cursor.read::<FixedHeader>()?;
         if fixed_header.ty() != Self::TYPE {
-            return Err(PacketError::InvalidType {
+            return Err(PacketError::InvalidPacketType {
                 expected: Self::TYPE,
                 actual: fixed_header.ty(),
             }

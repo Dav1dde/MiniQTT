@@ -1,13 +1,10 @@
 use core::fmt;
 
-use crate::{
-    protocol::{
-        Packet, PacketError, Parse, ParseError, QoS,
-        types::{EncodedStr, FixedHeader, VariableByteInteger},
-    },
-    traits::Writable,
-    utils::Cursor,
-};
+use crate::protocol::types::{EncodedStr, VariableByteInteger};
+use crate::protocol::utils::CursorExt;
+use crate::protocol::{Packet, PacketError, Parse, ParseError, QoS};
+use crate::traits::Writable;
+use crate::utils::Cursor;
 
 pub struct Publish<'a> {
     pub dup: bool,
@@ -53,14 +50,7 @@ impl<'a> Parse<'a> for Publish<'a> {
     fn parse(data: &'a [u8]) -> Result<(usize, Self), ParseError<Self::Error>> {
         let mut cursor = Cursor::new(data);
 
-        let fixed_header = cursor.read::<FixedHeader>()?;
-        if fixed_header.ty() != Self::TYPE {
-            return Err(PacketError::InvalidType {
-                expected: Self::TYPE,
-                actual: fixed_header.ty(),
-            }
-            .into());
-        }
+        let fixed_header = cursor.read_fixed_header::<Self>()?;
 
         let dup = fixed_header.flags() & 0b1000 > 0;
         let qos = QoS::try_from((fixed_header.flags() >> 1) & 0b11)

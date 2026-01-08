@@ -1,6 +1,7 @@
 mod qos;
 
 pub mod types;
+pub mod utils;
 pub mod v5;
 
 pub use qos::*;
@@ -36,7 +37,7 @@ where
     }
 }
 
-pub type ParseResult<T, E> = Result<T, ParseError<E>>;
+pub type ParseResult<T, E = PacketError> = Result<T, ParseError<E>>;
 
 #[derive(Debug, PartialEq, Eq)] // TODO: impl error
 pub enum ParseError<T> {
@@ -64,7 +65,11 @@ impl<T> From<T> for ParseError<T> {
 
 #[derive(Debug)]
 pub enum PacketError {
-    InvalidType { expected: u8, actual: u8 },
+    /// The parsed packet type in the fixed header does not match the expected type.
+    InvalidPacketType {
+        expected: u8,
+        actual: u8,
+    },
     // TODO: this should be more descriptive
     ProtocolError,
 }

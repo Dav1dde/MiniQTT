@@ -1,12 +1,9 @@
-use crate::{
-    protocol::{
-        Packet, PacketError, PacketParse, ParseResult, QoS,
-        types::{BinaryData, EncodedStr, FixedHeader},
-        v5::{Property, property::Properties},
-    },
-    traits::Writable,
-    utils::{Cursor, write_many},
-};
+use crate::protocol::types::{BinaryData, EncodedStr, VariableByteInteger};
+use crate::protocol::utils::CursorExt;
+use crate::protocol::v5::{Property, property::Properties};
+use crate::protocol::{Packet, PacketError, PacketParse, Parse, ParseResult, QoS};
+use crate::traits::Writable;
+use crate::utils::{Cursor, write_many};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Connect<'a> {
@@ -266,7 +263,11 @@ impl Writable for WillProperty<'_> {
 impl Property for WillProperty<'_> {}
 
 #[derive(Debug)]
-pub struct ConnAck {}
+pub struct ConnAck {
+    // TODO: should probably look into a bitflags crate for flags like that
+    pub ack_flags: u8,
+    pub reason: ConnAckReason,
+}
 
 impl Packet for ConnAck {
     const TYPE: u8 = 0b0010;
@@ -276,17 +277,131 @@ impl<'a> PacketParse<'a> for ConnAck {
     fn parse(data: &[u8]) -> ParseResult<(usize, Self), PacketError> {
         let mut cursor = Cursor::new(data);
 
-        let fixed_header = cursor.read::<FixedHeader>()?;
-        if fixed_header.ty() != Self::TYPE {
-            return Err(PacketError::InvalidType {
-                expected: Self::TYPE,
-                actual: fixed_header.ty(),
-            }
-            .into());
+        let _fixed_header = cursor.read_fixed_header::<Self>()?;
+
+        let ack_flags = cursor.read_u8()?;
+        let reason = cursor.read()?;
+
+        // TODO: actually parse the properties
+        let properties = cursor
+            .read::<VariableByteInteger>()
+            .map_err(|err| err.map(|_| PacketError::ProtocolError))?;
+        let _ = cursor.read_slice(properties.as_u32() as usize)?;
+
+        Ok((cursor.position(), Self { ack_flags, reason }))
+    }
+}
+
+/// The reason specified in the [`ConnAck`] packet.
+///
+/// Specification: <https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901079>.
+///
+/// Note, the specification calls out the list of reasons is exhaustive and the server must use one
+/// of the listed reasons:
+///
+/// > The Server sending the CONNACK packet MUST use one of the Connect Reason Code values T-3.2.2-8].
+#[derive(Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ConnAckReason {
+    /// The Connection is accepted.
+    Success = 0x00,
+    /// The Server does not wish to reveal the reason for the failure, or none of the other Reason
+    /// Codes apply.
+    UnspecifiedError = 0x80,
+    /// Data within the CONNECT packet could not be correctly parsed.
+    MalformedPacket = 0x81,
+    /// Data in the CONNECT packet does not conform to this specification.
+    ProtocolError = 0x82,
+    /// The CONNECT is valid but is not accepted by this Server.
+    ImplementationSpecificError = 0x83,
+    /// The Server does not support the version of the MQTT protocol requested by the Client.
+    UnsupportedProtocolVersion = 0x84,
+    /// The Client Identifier is a valid string but is not allowed by the Server.
+    ClientIdentifierNotValid = 0x85,
+    /// The Server does not accept the User Name or Password specified by the Client.
+    BadUserNameOrPassword = 0x86,
+    /// The Client is not authorized to connect.
+    NotAuthorized = 0x87,
+    /// The MQTT Server is not available.
+    ServerUnavailable = 0x88,
+    /// The Server is busy. Try again later.
+    ServerBusy = 0x89,
+    /// This Client has been banned by administrative action. Contact the server administrator.
+    Banned = 0x8a,
+    /// The authentication method is not supported or does not match the authentication method
+    /// currently in use.
+    BadAuthenticationMethod = 0x8c,
+    /// The Will Topic Name is not malformed, but is not accepted by this Server.
+    TopicNameInvalid = 0x90,
+    /// The CONNECT packet exceeded the maximum permissible size.
+    PacketTooLarge = 0x95,
+    /// An implementation or administrative imposed limit has been exceeded.
+    QuotaExceeded = 0x97,
+    /// The Will Payload does not match the specified Payload Format Indicator.
+    PayloadFormatInvalid = 0x99,
+    /// The Server does not support retained messages, and Will Retain was set to 1.
+    RetainNotSupported = 0x9a,
+    /// The Server does not support the QoS set in Will QoS.
+    QoSNotSupported = 0x9b,
+    /// The Client should temporarily use another server.
+    UseAnotherServer = 0x9c,
+    /// The Client should permanently use another server.
+    ServerMoved = 0x9d,
+    /// The connection rate 4limit has been exceeded.
+    ConnectionRateExceeded = 0x9f,
+}
+
+impl<'a> Parse<'a> for ConnAckReason {
+    type Error = PacketError;
+
+    fn parse(data: &'a [u8]) -> ParseResult<(usize, Self)> {
+        let mut cursor = Cursor::new(data);
+
+        let result = match cursor.read_u8()? {
+            0x00 => Self::Success,
+            0x80 => Self::UnspecifiedError,
+            0x81 => Self::MalformedPacket,
+            0x82 => Self::ProtocolError,
+            0x83 => Self::ImplementationSpecificError,
+            0x84 => Self::UnsupportedProtocolVersion,
+            0x85 => Self::ClientIdentifierNotValid,
+            0x86 => Self::BadUserNameOrPassword,
+            0x87 => Self::NotAuthorized,
+            0x88 => Self::ServerUnavailable,
+            0x89 => Self::ServerBusy,
+            0x8a => Self::Banned,
+            0x8c => Self::BadAuthenticationMethod,
+            0x90 => Self::TopicNameInvalid,
+            0x95 => Self::PacketTooLarge,
+            0x97 => Self::QuotaExceeded,
+            0x99 => Self::PayloadFormatInvalid,
+            0x9a => Self::RetainNotSupported,
+            0x9b => Self::QoSNotSupported,
+            0x9c => Self::UseAnotherServer,
+            0x9d => Self::ServerMoved,
+            0x9f => Self::ConnectionRateExceeded,
+            _ => return Err(PacketError::ProtocolError.into()),
+        };
+
+        Ok((cursor.position(), result))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parsed_conn_ack_reason_matches_value() {
+        for i in 0..u8::MAX {
+            let buf = [i];
+            let mut cursor = Cursor::new(&buf);
+
+            let Ok(reason) = cursor.read::<ConnAckReason>() else {
+                continue;
+            };
+
+            assert_eq!(reason as u8, i);
         }
-
-        let _ = cursor.read_slice(fixed_header.length().as_u32() as usize)?;
-
-        Ok((cursor.position(), Self {}))
     }
 }

@@ -8,9 +8,11 @@ use crate::traits::Writable;
 
 mod connect;
 mod error;
+mod utils;
 
-pub use self::connect::Connect;
+pub use self::connect::{Connect, ConnectResponse};
 pub use self::error::{Error, Result};
+pub use self::utils::MakeFuture;
 
 pub struct Client<'a, C> {
     // TODO: connection should possibly a trait to make dealing with it easier, or make the Client
@@ -47,13 +49,21 @@ where
     pub fn connect<'a>(
         &mut self,
         client_id: &'a str,
-    ) -> Connect<'a, impl connect::MakeFuture<'a, Error = C::Error>> {
+    ) -> Connect<'a, impl MakeFuture<v5::Connect<'a>, Output = Result<ConnectResponse, C::Error>>>
+    {
         Connect::new(client_id, |packet| async move {
             self.connection.send(&packet).await?;
 
-            let _ack = self.connection.receive::<v5::ConnAck>().await?;
+            let ack = self.connection.receive::<v5::ConnAck>().await?;
 
-            Ok(())
+            // TODO: according to the protocol, if the reason is not successful, the client must
+            // terminate the connection. Currently the connection trait just asks for Read/Write,
+            // there is no way to force close the connection.
+            //
+            // Maybe that is okay, maybe we should keep internal state on the client/connection and
+            // reject all further interactions, or just do nothing.
+
+            Ok(ConnectResponse { ack })
         })
     }
 
