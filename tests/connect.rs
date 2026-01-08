@@ -76,7 +76,7 @@ async fn test_client_connect_credentials_invalid() {
 
 #[tokio::test]
 async fn test_client_connect_resume_session() {
-    let mosquitto = common::Mosquitto::builder().port(1883).start();
+    let mosquitto = common::Mosquitto::builder().start();
     let mut client = mosquitto.client().await;
 
     let res = client

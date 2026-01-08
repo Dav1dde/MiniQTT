@@ -111,7 +111,11 @@ struct Config {
 
 impl Config {
     fn write_to(&self, to: &Path) -> io::Result<()> {
-        let mut f = OpenOptions::new().create(true).write(true).open(to)?;
+        let mut f = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(to)?;
 
         writeln!(f, "persistence false")?;
         writeln!(f, "listener {port}", port = self.port)?;
