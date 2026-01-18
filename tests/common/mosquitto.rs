@@ -25,21 +25,15 @@ impl Mosquitto {
         }
     }
 
-    pub async fn client(&self) -> miniqtt::Client<'static, Connection> {
-        let stream = loop {
-            match tokio::net::TcpStream::connect(("127.0.0.1", self.config.port)).await {
-                Ok(s) => break s,
-                Err(err) if err.kind() == io::ErrorKind::ConnectionRefused => {
-                    tokio::time::sleep(Duration::from_millis(100)).await
-                }
-                Err(err) => panic!("{err:?}"),
-            };
-        };
-        let stream = embedded_io_adapters::tokio_1::FromTokio::new(stream);
+    pub async fn client(&self) -> miniqtt::Client<Connection, Vec<u8>> {
+        self.client_with_buffer(Vec::new()).await
+    }
 
-        // TODO: connection needs to be generic to support owned buffers, leak for now.
-        let rx_buffer = vec![0; 128].leak();
-        let connection = miniqtt::Connection::new(stream, rx_buffer);
+    pub async fn client_with_buffer<B>(&self, buffer: B) -> miniqtt::Client<Connection, B> {
+        let addr = ("127.0.0.1", self.config.port);
+        let stream = wait_available(addr, MAX_WAIT).await.unwrap();
+        let stream = embedded_io_adapters::tokio_1::FromTokio::new(stream);
+        let connection = miniqtt::Connection::new(stream, buffer);
 
         miniqtt::Client::new(connection)
     }
@@ -176,12 +170,13 @@ fn wait_exit(process: &mut Child, max_wait: Duration) -> Option<(String, String)
         }
 
         let wait = Duration::from_millis(10);
-        std::thread::sleep(wait);
         total_wait += wait;
 
         if total_wait >= max_wait {
             return None;
         }
+
+        std::thread::sleep(wait);
     }
 
     let mut stdout = Vec::new();
@@ -193,4 +188,29 @@ fn wait_exit(process: &mut Child, max_wait: Duration) -> Option<(String, String)
         String::from_utf8_lossy(&stdout).into_owned(),
         String::from_utf8_lossy(&stderr).into_owned(),
     ))
+}
+
+async fn wait_available<A>(a: A, max_wait: Duration) -> io::Result<tokio::net::TcpStream>
+where
+    A: tokio::net::ToSocketAddrs,
+    A: Copy,
+{
+    let mut total_wait = Duration::ZERO;
+
+    loop {
+        let err = match tokio::net::TcpStream::connect(a).await {
+            Ok(s) => break Ok(s),
+            Err(err) if err.kind() == io::ErrorKind::ConnectionRefused => err,
+            Err(err) => return Err(err),
+        };
+
+        let wait = Duration::from_millis(10);
+        total_wait += wait;
+
+        if total_wait >= max_wait {
+            return Err(err);
+        }
+
+        tokio::time::sleep(wait).await;
+    }
 }

@@ -1,3 +1,62 @@
+/// Returned by [`Buffer::try_resize`] if the buffer is not resizable.
+#[derive(Debug, Clone, Copy)]
+pub struct BufferNotResizable;
+
+/// A continuous buffer, which may be resizable.
+pub trait Buffer {
+    /// Returns the entire contents of the buffer as continuous byte slice.
+    fn as_slice(&self) -> &[u8];
+
+    /// Returns the entire contents of the buffer as continuous mutable byte slice.
+    fn as_slice_mut(&mut self) -> &mut [u8];
+
+    /// Attempts to resize the buffer.
+    ///
+    /// By default a buffer is not resizable and this returns [`BufferNotResizable`].
+    ///
+    /// Implementations must either return [`BufferNotResizable`] or extend the buffer
+    /// by at least one byte.
+    fn try_resize(&mut self) -> Result<(), BufferNotResizable> {
+        Err(BufferNotResizable)
+    }
+}
+
+impl Buffer for &mut [u8] {
+    fn as_slice(&self) -> &[u8] {
+        self
+    }
+
+    fn as_slice_mut(&mut self) -> &mut [u8] {
+        self
+    }
+}
+
+impl Buffer for Vec<u8> {
+    fn as_slice(&self) -> &[u8] {
+        self
+    }
+
+    fn as_slice_mut(&mut self) -> &mut [u8] {
+        self
+    }
+
+    fn try_resize(&mut self) -> Result<(), BufferNotResizable> {
+        let len = self.len();
+        self.resize(len + (len * 2).clamp(32, 8192), 0);
+        Ok(())
+    }
+}
+
+impl<const N: usize> Buffer for [u8; N] {
+    fn as_slice(&self) -> &[u8] {
+        self
+    }
+
+    fn as_slice_mut(&mut self) -> &mut [u8] {
+        self
+    }
+}
+
 /// A type which can be written to [`embedded_io_async::Write`] and knows its size.
 pub trait Writable {
     type Error<E>;

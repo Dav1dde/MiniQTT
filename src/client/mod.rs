@@ -4,7 +4,7 @@ use crate::log;
 use crate::protocol::types::FixedHeader;
 use crate::protocol::v5::TopicFilter;
 use crate::protocol::{Packet, PacketError, Parse, ParseError, QoS, v5};
-use crate::traits::Writable;
+use crate::traits::{Buffer, Writable};
 
 mod connect;
 mod error;
@@ -14,15 +14,15 @@ pub use self::connect::{Connect, ConnectResponse};
 pub use self::error::{Error, Result};
 pub use self::utils::MakeFuture;
 
-pub struct Client<'a, C> {
+pub struct Client<C, B> {
     // TODO: connection should possibly a trait to make dealing with it easier, or make the Client
     // a trait.
-    connection: Connection<'a, C>,
+    connection: Connection<C, B>,
     identifier: AtomicU16, // TODO: maybe we don't need the atomic here
 }
 
-impl<'a, C> Client<'a, C> {
-    pub fn new(connection: Connection<'a, C>) -> Self {
+impl<C, B> Client<C, B> {
+    pub fn new(connection: Connection<C, B>) -> Self {
         Self {
             connection,
             identifier: AtomicU16::new(20_000),
@@ -30,10 +30,11 @@ impl<'a, C> Client<'a, C> {
     }
 }
 
-impl<'c, C> Client<'c, C>
+impl<C, B> Client<C, B>
 where
     C: embedded_io_async::Read,
     C: embedded_io_async::Write,
+    B: Buffer,
 {
     // TODO: maybe only connected clients should be able to be created via a builder.
     // TODO: sending methods could send the payload, then return a future which simply awaits
@@ -139,17 +140,21 @@ where
     }
 }
 
-pub struct Connection<'a, C> {
+pub struct Connection<C, B> {
     inner: C,
-    // TODO: buffer should be generic and possibly be resizable, to allow for dynamic and growing buffers
-    // TODO: should be some kind of cursor
-    rx_buffer: &'a mut [u8],
+    /// Temporary buffer for bytes read from the connection.
+    rx_buffer: B,
+    /// Current amount of bytes read from the connection and stored in the buffer.
     size: usize,
+    /// Current position in the buffer.
+    ///
+    /// Set after successfully parsing an packet, indicating the offset of the start of the next
+    /// packet.
     position: Option<usize>,
 }
 
-impl<'a, C> Connection<'a, C> {
-    pub fn new(inner: C, rx_buffer: &'a mut [u8]) -> Self {
+impl<C, B> Connection<C, B> {
+    pub fn new(inner: C, rx_buffer: B) -> Self {
         Self {
             inner,
             rx_buffer,
@@ -159,7 +164,7 @@ impl<'a, C> Connection<'a, C> {
     }
 }
 
-impl<C> Connection<'_, C>
+impl<C, B> Connection<C, B>
 where
     C: embedded_io_async::Write,
 {
@@ -182,9 +187,10 @@ where
     }
 }
 
-impl<C> Connection<'_, C>
+impl<C, B> Connection<C, B>
 where
     C: embedded_io_async::Read,
+    B: Buffer,
 {
     async fn receive<'a, T>(&'a mut self) -> Result<T, C::Error>
     where
@@ -204,14 +210,24 @@ where
         //     target read just enough for the packet, minimizing the amount of data we have to
         //     copy.
         if let Some(position) = self.position.take() {
-            log::trace!("{:?} -{}", &self.rx_buffer[..self.size], position);
-            self.rx_buffer.copy_within(position..self.size, 0);
+            log::trace!(
+                "{:?} -{}",
+                &self.rx_buffer.as_slice()[..self.size],
+                position
+            );
+            self.rx_buffer
+                .as_slice_mut()
+                .copy_within(position..self.size, 0);
             self.size -= position;
-            log::trace!("{:?} ={}", &self.rx_buffer[..self.size], self.size);
+            log::trace!(
+                "{:?} ={}",
+                &self.rx_buffer.as_slice()[..self.size],
+                self.size
+            );
         }
 
         loop {
-            let (data, remaining) = self.rx_buffer.split_at_mut(self.size);
+            let (data, remaining) = self.rx_buffer.as_slice_mut().split_at_mut(self.size);
 
             // TODO: confirm the details written down here.
             //
@@ -247,6 +263,15 @@ where
             }
 
             if remaining.is_empty() {
+                let _len = self.rx_buffer.as_slice().len();
+                if let Ok(()) = self.rx_buffer.try_resize() {
+                    // Safety check, if buffer does not grow, this is an endless loop.
+                    debug_assert!(
+                        _len < self.rx_buffer.as_slice().len(),
+                        "buffer must grow when resized"
+                    );
+                    continue;
+                }
                 // TODO: maybe can recover here by just skipping the current packet,
                 // assuming the buffer is big enough to parse the fixed header.
                 //
@@ -268,7 +293,7 @@ where
                 return Err(Error::Disconnected);
             } else {
                 self.size += r;
-                log::trace!("{:?} +{r}", &self.rx_buffer[..self.size]);
+                log::trace!("{:?} +{r}", &self.rx_buffer.as_slice()[..self.size]);
             }
         }
     }
